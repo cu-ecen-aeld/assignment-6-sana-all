@@ -30,8 +30,6 @@ jobs:
             if: always()
             run: |
               ssh-add -D
-              docker system prune -f
-              docker volume prune -f
           - name: Run full test
             timeout-minutes: 15
             run: |

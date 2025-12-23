@@ -15,23 +15,33 @@ cat conf/local.conf | grep "${CONFLINE}" > /dev/null
 local_conf_info=$?
 
 if [ $local_conf_info -ne 0 ];then
-	echo "Append ${CONFLINE} in the local.conf file"
-	echo ${CONFLINE} >> conf/local.conf
-	
+    echo "Append ${CONFLINE} in the local.conf file"
+    echo ${CONFLINE} >> conf/local.conf
 else
-	echo "${CONFLINE} already exists in the local.conf file"
+    echo "${CONFLINE} already exists in the local.conf file"
 fi
-
 
 bitbake-layers show-layers | grep "meta-aesd" > /dev/null
 layer_info=$?
 
 if [ $layer_info -ne 0 ];then
-	echo "Adding meta-aesd layer"
-	bitbake-layers add-layer ../meta-aesd
+    echo "Adding meta-aesd layer"
+    bitbake-layers add-layer ../meta-aesd
 else
-	echo "meta-aesd layer already exists"
+    echo "meta-aesd layer already exists"
 fi
 
 set -e
+
+# Perform cleanup before starting the build
+echo "Performing initial cleanup to free up space..."
+bitbake -c cleansstate core-image-aesd
+docker system prune -f
+
+# Start the build process
 bitbake core-image-aesd
+
+# Perform cleanup after the build
+echo "Performing final cleanup..."
+bitbake -c cleanall core-image-aesd
+docker system prune -f

@@ -18,16 +18,16 @@ jobs:
                  ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
           - name: Run build
             timeout-minutes: 600
-            run: |
-                 docker system prune -f
-     		docker volume prune -f
-               docker run --rm \
-                 -v $SSH_AUTH_SOCK:/ssh-agent -e SSH_AUTH_SOCK=/ssh-agent \
-                 -e GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no" \
-                 -v ${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE} \
-                 cuaesd/aesd-autotest:24-assignment6-yocto \
-                 --workdir=${GITHUB_WORKSPACE} \
-                 ./build.sh
+	  run: |
+	     docker run --rm \
+	       -v $SSH_AUTH_SOCK:/ssh-agent -e SSH_AUTH_SOCK=/ssh-agent \
+	       -e GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no" \
+	       -v ${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE} \
+	       cuaesd/aesd-autotest:24-assignment6-yocto \
+	       --workdir=${GITHUB_WORKSPACE} \
+	       ./build.sh
+	     docker system prune -f
+	     docker volume prune -f
           - name: Cleanup
             if: always()
             run: |

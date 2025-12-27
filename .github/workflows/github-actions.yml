@@ -46,17 +46,16 @@ jobs:
       - name: Restore Yocto caches to /mnt
         uses: actions/cache@v4
         with:
-          path: |
-            /mnt/sstate-cache
-            /mnt/downloads
+          path:
+            - /mnt/sstate-cache
+            - /mnt/downloads
           key: runner.os-yocto-${{ github.ref }}-${{ hashFiles('**/conf/layer.conf', '**/conf/bblayers.conf') }}
-          restore-keys: |
-            runner.os-yocto-${{ github.ref }}-
-            runner.os-yocto-
+          restore-keys:
+            - runner.os-yocto-${{ github.ref }}-
+            - runner.os-yocto-
 
       - name: Pre-create build local.conf to point Yocto at /mnt
         run: |
-          # Ensure the build/conf directory exists on the host so the container sees it
           mkdir -p build/conf
           cat > build/conf/local.conf <<'EOF'
 TMPDIR ?= "/mnt/yocto-tmp"
@@ -102,18 +101,16 @@ EOF
         if: always()
         uses: actions/cache@v4
         with:
-          path: |
-            /mnt/sstate-cache
-            /mnt/downloads
+          path:
+            - /mnt/sstate-cache
+            - /mnt/downloads
           key: runner.os-yocto-${{ github.ref }}-${{ hashFiles('**/conf/layer.conf', '**/conf/bblayers.conf') }}
 
       - name: Cleanup (always)
         if: always()
         run: |
           ssh-add -D || true
-          # Re-run a lightweight prune to free leftover docker objects on the host
           docker system prune -af --volumes || true
-          # Clean temporary build dirs on the workspace if present
           rm -rf build/tmp/* || true
           sudo rm -rf /var/lib/apt/lists/* /var/cache/apt/* || true
           echo "=== final df -h ==="

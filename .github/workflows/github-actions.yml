@@ -46,13 +46,13 @@ jobs:
       - name: Restore Yocto caches to /mnt
         uses: actions/cache@v4
         with:
-          path:
-            - /mnt/sstate-cache
-            - /mnt/downloads
+          path: |
+            /mnt/sstate-cache
+            /mnt/downloads
           key: runner.os-yocto-${{ github.ref }}-${{ hashFiles('**/conf/layer.conf', '**/conf/bblayers.conf') }}
-          restore-keys:
-            - runner.os-yocto-${{ github.ref }}-
-            - runner.os-yocto-
+          restore-keys: |
+            runner.os-yocto-${{ github.ref }}-
+            runner.os-yocto-
 
       - name: Pre-create build local.conf to point Yocto at /mnt
         run: |
@@ -100,9 +100,9 @@ jobs:
         if: always()
         uses: actions/cache@v4
         with:
-          path:
-            - /mnt/sstate-cache
-            - /mnt/downloads
+          path: |
+            /mnt/sstate-cache
+            /mnt/downloads
           key: runner.os-yocto-${{ github.ref }}-${{ hashFiles('**/conf/layer.conf', '**/conf/bblayers.conf') }}
 
       - name: Cleanup (always)

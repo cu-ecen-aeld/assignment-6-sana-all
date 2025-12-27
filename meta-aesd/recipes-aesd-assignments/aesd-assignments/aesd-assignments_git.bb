@@ -23,7 +23,7 @@ FILES:${PN} += "${bindir}/aesdsocket"
 # TODO: customize these as necessary for any libraries you need for your application
 # (and remove comment)
 TARGET_LDFLAGS += "-pthread -lrt"
-# INSANE_SKIP:${PN} += "ldflags"
+INSANE_SKIP:${PN} += "ldflags"
 # INITSCRIPT_PACKAGES = "${PN}"
 # INITSCRIPT_NAME:${PN} = "aesdsocket-start-stop"
 # EXTRA_OEMAKE = "CFLAGS='-Wall -Wextra -g' LDFLAGS='${TARGET_LDFLAGS}'"

@@ -1,40 +1,94 @@
 name: assignment-test
+
 on:
-    push:
-        tags-ignore:
-            - '*'
-        branches:
-            - '*'
+  push:
+    tags-ignore:
+      - '*'
+    branches:
+      - '*'
+
 jobs:
-      full-test:
-        runs-on: ubuntu-latest
-        steps:
-          - uses: actions/checkout@v3
-            with:
-              clean: false
-              submodules: 'recursive'
-          - uses: webfactory/ssh-agent@v0.5.4
-            with:
-                 ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-          - name: Run build
-            timeout-minutes: 600
-            run: |
-               docker run --rm \
-                 -v $SSH_AUTH_SOCK:/ssh-agent -e SSH_AUTH_SOCK=/ssh-agent \
-                 -e GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no" \
-                 -v ${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE} \
-                 cuaesd/aesd-autotest:24-assignment6-yocto \
-                 --workdir=${GITHUB_WORKSPACE} \
-                 ./build.sh
-          - name: Cleanup
-            if: always()
-            run: |
-              ssh-add -D
-          - name: Run full test
-            timeout-minutes: 15
-            run: |
-               docker run --rm \
-                 -v ${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE} \
-                 cuaesd/aesd-autotest:assignment6-yocto \
-                 --workdir=${GITHUB_WORKSPACE} \
-                 ./full-test.sh
+  full-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          submodules: 'recursive'
+
+      - name: Disk diagnostics (before cleanup)
+        run: |
+          echo "=== df -h ==="
+          df -h || true
+          echo "=== workspace du (top-level) ==="
+          du -sh . || true
+          echo "=== build folder du ==="
+          du -sh build || true
+          du -sh build/* || true
+
+      - name: Free runner disk space (short-term cleanup)
+        run: |
+          # Remove build temporary directories that Yocto might create
+          rm -rf build/tmp/* || true
+          rm -rf build/sstate-cache/tmp.* || true
+          # Remove apt caches (safe on hosted runners)
+          sudo rm -rf /var/lib/apt/lists/* /var/cache/apt/* || true
+          # Show disk after cleanup
+          echo "=== df -h after cleanup ==="
+          df -h || true
+
+      - name: Restore Yocto caches (sstate-cache & downloads)
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/sstate-cache
+            build/downloads
+          key: runner.os-yocto-${{ github.ref }}-${{ hashFiles('**/conf/layer.conf', '**/conf/bblayers.conf') }}
+          restore-keys: |
+            runner.os-yocto-${{ github.ref }}-
+            runner.os-yocto-
+
+      - name: Start SSH agent
+        uses: webfactory/ssh-agent@v0.5.4
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Run build
+        timeout-minutes: 600
+        run: |
+          docker run --rm \
+            -v $SSH_AUTH_SOCK:/ssh-agent -e SSH_AUTH_SOCK=/ssh-agent \
+            -e GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no" \
+            -v ${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE} \
+            cuaesd/aesd-autotest:24-assignment6-yocto \
+            --workdir=${GITHUB_WORKSPACE} \
+            ./build.sh
+
+      - name: Save Yocto caches (if build produced updates)
+        if: always()
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/sstate-cache
+            build/downloads
+          key: runner.os-yocto-${{ github.ref }}-${{ hashFiles('**/conf/layer.conf', '**/conf/bblayers.conf') }}
+
+      - name: Cleanup (always)
+        if: always()
+        run: |
+          ssh-add -D || true
+          # free temp directories again
+          rm -rf build/tmp/* || true
+          sudo rm -rf /var/lib/apt/lists/* /var/cache/apt/* || true
+          echo "=== final df -h ==="
+          df -h || true
+
+      - name: Run full test
+        timeout-minutes: 15
+        run: |
+          docker run --rm \
+            -v ${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE} \
+            cuaesd/aesd-autotest:assignment6-yocto \
+            --workdir=${GITHUB_WORKSPACE} \
+            ./full-test.sh

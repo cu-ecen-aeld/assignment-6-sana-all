@@ -57,15 +57,14 @@ jobs:
       - name: Pre-create build local.conf to point Yocto at /mnt
         run: |
           mkdir -p build/conf
-          cat > build/conf/local.conf <<'EOF'
-TMPDIR ?= "/mnt/yocto-tmp"
-SSTATE_DIR ?= "/mnt/sstate-cache"
-DL_DIR ?= "/mnt/downloads"
-INHERIT += "rm_work"
-# Reduce parallelism if disk churn is still a problem:
-BB_NUMBER_THREADS ?= "2"
-PARALLEL_MAKE ?= "-j 2"
-EOF
+          printf '%s\n' \
+            'TMPDIR ?= "/mnt/yocto-tmp"' \
+            'SSTATE_DIR ?= "/mnt/sstate-cache"' \
+            'DL_DIR ?= "/mnt/downloads"' \
+            'INHERIT += "rm_work"' \
+            '# Reduce parallelism if disk churn is still a problem:' \
+            'BB_NUMBER_THREADS ?= "2"' \
+            'PARALLEL_MAKE ?= "-j 2"' > build/conf/local.conf
           echo "Wrote build/conf/local.conf with /mnt paths"
 
       - name: Start SSH agent

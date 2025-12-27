@@ -23,8 +23,8 @@ else
 fi
 
 echo "INHERIT += \"rm_work\"" >> conf/local.conf
-#echo "PARALLEL_MAKE = \"-j 2\"" >> conf/local.conf
-#echo "BB_NUMBER_THREADS = \"2\"" >> conf/local.conf
+echo "PARALLEL_MAKE = \"-j 2\"" >> conf/local.conf
+echo "BB_NUMBER_THREADS = \"2\"" >> conf/local.conf
 echo "rm_work added for disk space issue and decreased cores for ram issue"
 
 bitbake-layers show-layers | grep "meta-aesd" > /dev/null

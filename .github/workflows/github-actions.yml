@@ -6,6 +6,7 @@ on:
       - '*'
     branches:
       - '*'
+  workflow_dispatch:
 
 jobs:
   full-test:
@@ -23,62 +24,96 @@ jobs:
           df -h || true
           echo "=== workspace du (top-level) ==="
           du -sh . || true
-          echo "=== build folder du ==="
+          echo "=== build folder du (if exists) ==="
           du -sh build || true
           du -sh build/* || true
 
-      - name: Free runner disk space (short-term cleanup)
+      - name: Prepare /mnt storage for Yocto caches
         run: |
-          # Remove build temporary directories that Yocto might create
-          rm -rf build/tmp/* || true
-          rm -rf build/sstate-cache/tmp.* || true
-          # Remove apt caches (safe on hosted runners)
-          sudo rm -rf /var/lib/apt/lists/* /var/cache/apt/* || true
-          # Show disk after cleanup
-          echo "=== df -h after cleanup ==="
+          sudo mkdir -p /mnt/yocto-tmp /mnt/sstate-cache /mnt/downloads
+          sudo chmod 777 /mnt/yocto-tmp /mnt/sstate-cache /mnt/downloads
+          echo "Created /mnt/yocto-tmp, /mnt/sstate-cache, /mnt/downloads"
+
+      - name: Aggressive host docker cleanup (free space)
+        run: |
+          echo "Host docker usage before prune:"
+          docker system df || true
+          echo "Pruning unused docker objects (images/containers/volumes)..."
+          docker system prune -af --volumes || true
+          echo "Disk after prune:"
           df -h || true
 
-      - name: Restore Yocto caches (sstate-cache & downloads)
+      - name: Restore Yocto caches to /mnt
         uses: actions/cache@v4
         with:
           path: |
-            build/sstate-cache
-            build/downloads
+            /mnt/sstate-cache
+            /mnt/downloads
           key: runner.os-yocto-${{ github.ref }}-${{ hashFiles('**/conf/layer.conf', '**/conf/bblayers.conf') }}
           restore-keys: |
             runner.os-yocto-${{ github.ref }}-
             runner.os-yocto-
+
+      - name: Pre-create build local.conf to point Yocto at /mnt
+        run: |
+          # Ensure the build/conf directory exists on the host so the container sees it
+          mkdir -p build/conf
+          cat > build/conf/local.conf <<'EOF'
+TMPDIR ?= "/mnt/yocto-tmp"
+SSTATE_DIR ?= "/mnt/sstate-cache"
+DL_DIR ?= "/mnt/downloads"
+INHERIT += "rm_work"
+# Reduce parallelism if disk churn is still a problem:
+BB_NUMBER_THREADS ?= "2"
+PARALLEL_MAKE ?= "-j 2"
+EOF
+          echo "Wrote build/conf/local.conf with /mnt paths"
 
       - name: Start SSH agent
         uses: webfactory/ssh-agent@v0.5.4
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      - name: Run build
+      - name: Run build (uses /mnt)
         timeout-minutes: 600
         run: |
           docker run --rm \
             -v $SSH_AUTH_SOCK:/ssh-agent -e SSH_AUTH_SOCK=/ssh-agent \
             -e GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no" \
             -v ${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE} \
+            -v /mnt:/mnt \
             cuaesd/aesd-autotest:24-assignment6-yocto \
             --workdir=${GITHUB_WORKSPACE} \
             ./build.sh
 
-      - name: Save Yocto caches (if build produced updates)
+      - name: Disk diagnostics (after build)
+        if: always()
+        run: |
+          echo "=== df -h after build ==="
+          df -h || true
+          echo "=== docker system df after build ==="
+          docker system df || true
+          echo "=== build dir du ==="
+          du -sh build || true
+          du -sh /mnt/sstate-cache || true
+          du -sh /mnt/downloads || true
+
+      - name: Save Yocto caches from /mnt
         if: always()
         uses: actions/cache@v4
         with:
           path: |
-            build/sstate-cache
-            build/downloads
+            /mnt/sstate-cache
+            /mnt/downloads
           key: runner.os-yocto-${{ github.ref }}-${{ hashFiles('**/conf/layer.conf', '**/conf/bblayers.conf') }}
 
       - name: Cleanup (always)
         if: always()
         run: |
           ssh-add -D || true
-          # free temp directories again
+          # Re-run a lightweight prune to free leftover docker objects on the host
+          docker system prune -af --volumes || true
+          # Clean temporary build dirs on the workspace if present
           rm -rf build/tmp/* || true
           sudo rm -rf /var/lib/apt/lists/* /var/cache/apt/* || true
           echo "=== final df -h ==="

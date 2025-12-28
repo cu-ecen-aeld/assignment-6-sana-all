@@ -115,6 +115,26 @@ jobs:
           echo "=== final df -h ==="
           df -h || true
 
+      - name: Make /mnt writable for test container
+        run: |
+          # Ensure dirs exist
+          sudo mkdir -p /mnt/yocto-tmp /mnt/sstate-cache /mnt/downloads
+          IMG=cuaesd/aesd-autotest:assignment6-yocto
+          echo "Pulling test image to detect pokyuser uid/gid..."
+          docker pull ${IMG} >/dev/null || true
+          echo "Determining pokyuser UID/GID inside ${IMG} ..."
+          UID=$(docker run --rm ${IMG} sh -c "id -u pokyuser" 2>/dev/null || true)
+          GID=$(docker run --rm ${IMG} sh -c "id -g pokyuser" 2>/dev/null || true)
+          UID=${UID:-1000}
+          GID=${GID:-1000}
+          echo "pokyuser in image has uid=${UID} gid=${GID}"
+          echo "Chowning /mnt dirs to ${UID}:${GID} and setting permissive mode..."
+          sudo chown -R ${UID}:${GID} /mnt/yocto-tmp /mnt/sstate-cache /mnt/downloads || true
+          sudo chmod -R a+rwX /mnt/yocto-tmp /mnt/sstate-cache /mnt/downloads || true
+          echo "Quick write test from container (should print OK):"
+          docker run --rm -v /mnt:/mnt ${IMG} sh -c "touch /mnt/sstate-cache/ci_write_test && echo OK || echo FAIL"
+        shell: bash
+
       - name: Run full test
         timeout-minutes: 15
         run: |

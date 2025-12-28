@@ -137,12 +137,15 @@ jobs:
           IMG=cuaesd/aesd-autotest:assignment6-yocto
           echo "Pulling test image to detect pokyuser uid/gid..."
           docker pull ${IMG} >/dev/null || true
-          UID=$(docker run --rm ${IMG} sh -c "id -u pokyuser" 2>/dev/null || true)
-          GID=$(docker run --rm ${IMG} sh -c "id -g pokyuser" 2>/dev/null || true)
-          UID=${UID:-1000}
-          GID=${GID:-1000}
-          echo "pokyuser in image has uid=${UID} gid=${GID}"
-          sudo chown -R ${UID}:${GID} /mnt/yocto-tmp /mnt/sstate-cache /mnt/downloads || true
+          echo "Determining pokyuser UID/GID inside ${IMG} ..."
+          PUID=$(docker run --rm ${IMG} sh -c "id -u pokyuser" 2>/dev/null || true)
+          PGID=$(docker run --rm ${IMG} sh -c "id -g pokyuser" 2>/dev/null || true)
+          # Fallback if detection failed
+          PUID=${PUID:-1000}
+          PGID=${PGID:-1000}
+          echo "pokyuser in image has uid=${PUID} gid=${PGID}"
+          echo "Chowning /mnt dirs to ${PUID}:${PGID} and setting permissive mode..."
+          sudo chown -R ${PUID}:${PGID} /mnt/yocto-tmp /mnt/sstate-cache /mnt/downloads || true
           sudo chmod -R a+rwX /mnt/yocto-tmp /mnt/sstate-cache /mnt/downloads || true
           echo "Quick write test from container (should print OK):"
           docker run --rm -v /mnt:/mnt ${IMG} sh -c "touch /mnt/sstate-cache/ci_write_test && echo OK || echo FAIL"

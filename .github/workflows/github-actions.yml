@@ -34,14 +34,11 @@ jobs:
           sudo chmod 777 /mnt/yocto-tmp /mnt/sstate-cache /mnt/downloads
           echo "Created /mnt/yocto-tmp, /mnt/sstate-cache, /mnt/downloads"
 
-      - name: Aggressive host docker cleanup (free space)
+      - name: Show host docker usage (no prune yet)
         run: |
-          echo "Host docker usage before prune:"
+          echo "Host docker usage:"
           docker system df || true
-          echo "Pruning unused docker objects (images/containers/volumes)..."
-          docker system prune -af --volumes || true
-          echo "Disk after prune:"
-          df -h || true
+          echo "Skipping prune until after full-test to avoid re-pulling the test image."
 
       - name: Restore Yocto caches to /mnt
         uses: actions/cache@v4
@@ -71,6 +68,24 @@ jobs:
         uses: webfactory/ssh-agent@v0.5.4
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Debug-inspect test image and workspace (runs in the build image)
+        run: |
+          IMG=cuaesd/aesd-autotest:24-assignment6-yocto
+          echo "Pulling ${IMG} for inspection..."
+          docker pull ${IMG} >/dev/null || true
+          echo "Inspecting workspace & /mnt from inside ${IMG}:"
+          docker run --rm -v ${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE} -v /mnt:/mnt ${IMG} sh -c "
+            echo 'Inside container: whoami:'; whoami || true
+            echo 'Inside container: id of pokyuser:'; id pokyuser || true
+            echo 'Workspace root:' ${GITHUB_WORKSPACE}
+            echo 'Listing workspace top-level:'; ls -al ${GITHUB_WORKSPACE} || true
+            echo 'Listing server dir if present:'; ls -al ${GITHUB_WORKSPACE}/server || true
+            echo 'Show aesdsocket files:'; ls -al ${GITHUB_WORKSPACE}/server/aesdsocket* || true
+            echo 'Check /mnt sstate/downloads perms:'; ls -ld /mnt/sstate-cache /mnt/downloads /mnt/yocto-tmp || true
+            echo 'Try to write into /mnt/sstate-cache:'; touch /mnt/sstate-cache/ci_debug && echo touch_ok || echo touch_fail
+          "
+        shell: bash
 
       - name: Run build (uses /mnt)
         timeout-minutes: 600
@@ -105,11 +120,11 @@ jobs:
             /mnt/downloads
           key: runner.os-yocto-${{ github.ref }}-${{ hashFiles('**/conf/layer.conf', '**/conf/bblayers.conf') }}
 
-      - name: Cleanup (always)
+      - name: Lightweight cleanup (always)
         if: always()
         run: |
           ssh-add -D || true
-          docker system prune -af --volumes || true
+          # Do not prune images here (we need the test image). Just clean build temp folders and apt caches.
           rm -rf build/tmp/* || true
           sudo rm -rf /var/lib/apt/lists/* /var/cache/apt/* || true
           echo "=== final df -h ==="
@@ -122,13 +137,11 @@ jobs:
           IMG=cuaesd/aesd-autotest:assignment6-yocto
           echo "Pulling test image to detect pokyuser uid/gid..."
           docker pull ${IMG} >/dev/null || true
-          echo "Determining pokyuser UID/GID inside ${IMG} ..."
           UID=$(docker run --rm ${IMG} sh -c "id -u pokyuser" 2>/dev/null || true)
           GID=$(docker run --rm ${IMG} sh -c "id -g pokyuser" 2>/dev/null || true)
           UID=${UID:-1000}
           GID=${GID:-1000}
           echo "pokyuser in image has uid=${UID} gid=${GID}"
-          echo "Chowning /mnt dirs to ${UID}:${GID} and setting permissive mode..."
           sudo chown -R ${UID}:${GID} /mnt/yocto-tmp /mnt/sstate-cache /mnt/downloads || true
           sudo chmod -R a+rwX /mnt/yocto-tmp /mnt/sstate-cache /mnt/downloads || true
           echo "Quick write test from container (should print OK):"
@@ -143,3 +156,12 @@ jobs:
             cuaesd/aesd-autotest:assignment6-yocto \
             --workdir=${GITHUB_WORKSPACE} \
             ./full-test.sh
+
+      - name: Aggressive host docker cleanup (after tests)
+        if: always()
+        run: |
+          echo "Pruning unused docker objects (images/containers/volumes)..."
+          docker system df || true
+          docker system prune -af --volumes || true
+          echo "Post-prune df -h:"
+          df -h || true

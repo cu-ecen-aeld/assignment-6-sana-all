@@ -55,5 +55,5 @@ do_install () {
 
     # Install the init script
     install -d ${D}${sysconfdir}/init.d
-    install -m 0755 ${S}/aesdsocket-start-stop.sh ${D}${sysconfdir}/init.d
+    install -m 0755 ${S}/aesdsocket-start-stop ${D}${sysconfdir}/init.d
 }

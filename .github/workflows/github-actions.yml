@@ -11,6 +11,9 @@ on:
 jobs:
   full-test:
     runs-on: ubuntu-latest
+    env:
+      YOCTO_IMG: cuaesd/aesd-autotest:24-assignment6-yocto
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -36,9 +39,7 @@ jobs:
 
       - name: Show host docker usage (no prune yet)
         run: |
-          echo "Host docker usage:"
           docker system df || true
-          echo "Skipping prune until after full-test to avoid re-pulling the test image."
 
       - name: Restore Yocto caches to /mnt
         uses: actions/cache@v4
@@ -59,51 +60,31 @@ jobs:
             'SSTATE_DIR ?= "/mnt/sstate-cache"' \
             'DL_DIR ?= "/mnt/downloads"' \
             'INHERIT += "rm_work"' \
-            '# Reduce parallelism if disk churn is still a problem:' \
             'BB_NUMBER_THREADS ?= "2"' \
             'PARALLEL_MAKE ?= "-j 2"' > build/conf/local.conf
-          echo "Wrote build/conf/local.conf with /mnt paths"
 
-      - name: Make /mnt writable for test container
+      - name: Make /mnt writable for container user
         run: |
-          # Ensure dirs exist
-          sudo mkdir -p /mnt/yocto-tmp /mnt/sstate-cache /mnt/downloads
-          IMG=cuaesd/aesd-autotest:assignment6-yocto
-          echo "Pulling test image to detect pokyuser uid/gid..."
+          IMG=${YOCTO_IMG}
           docker pull ${IMG} >/dev/null || true
-          echo "Determining pokyuser UID/GID inside ${IMG} ..."
-          PUID=$(docker run --rm ${IMG} sh -c "id -u pokyuser" 2>/dev/null || true)
-          PGID=$(docker run --rm ${IMG} sh -c "id -g pokyuser" 2>/dev/null || true)
-          # Fallback if detection failed
-          PUID=${PUID:-1000}
-          PGID=${PGID:-1000}
-          echo "pokyuser in image has uid=${PUID} gid=${PGID}"
-          echo "Chowning /mnt dirs to ${PUID}:${PGID} and setting permissive mode..."
-          sudo chown -R ${PUID}:${PGID} /mnt/yocto-tmp /mnt/sstate-cache /mnt/downloads || true
-          sudo chmod -R a+rwX /mnt/yocto-tmp /mnt/sstate-cache /mnt/downloads || true
-          echo "Quick write test from container (should print OK):"
-          docker run --rm -v /mnt:/mnt ${IMG} sh -c "touch /mnt/sstate-cache/ci_write_test && echo OK || echo FAIL"
-          
+          PUID=$(docker run --rm ${IMG} sh -c "id -u pokyuser")
+          PGID=$(docker run --rm ${IMG} sh -c "id -g pokyuser")
+          sudo chown -R ${PUID}:${PGID} /mnt/yocto-tmp /mnt/sstate-cache /mnt/downloads
+          sudo chmod -R a+rwX /mnt/yocto-tmp /mnt/sstate-cache /mnt/downloads
+          docker run --rm -v /mnt:/mnt ${IMG} sh -c "touch /mnt/sstate-cache/ci_ok && echo OK"
+
       - name: Start SSH agent
         uses: webfactory/ssh-agent@v0.5.4
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      - name: Debug-inspect test image and workspace (runs in the build image)
+      - name: Debug-inspect image & workspace
         run: |
-          IMG=cuaesd/aesd-autotest:24-assignment6-yocto
-          echo "Pulling ${IMG} for inspection..."
-          docker pull ${IMG} >/dev/null || true
-          echo "Inspecting workspace & /mnt from inside ${IMG}:"
+          IMG=${YOCTO_IMG}
           docker run --rm -v ${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE} -v /mnt:/mnt ${IMG} sh -c "
-            echo 'Inside container: whoami:'; whoami || true
-            echo 'Inside container: id of pokyuser:'; id pokyuser || true
-            echo 'Workspace root:' ${GITHUB_WORKSPACE}
-            echo 'Listing workspace top-level:'; ls -al ${GITHUB_WORKSPACE} || true
-            echo 'Listing server dir if present:'; ls -al ${GITHUB_WORKSPACE}/server || true
-            echo 'Show aesdsocket files:'; ls -al ${GITHUB_WORKSPACE}/server/aesdsocket* || true
-            echo 'Check /mnt sstate/downloads perms:'; ls -ld /mnt/sstate-cache /mnt/downloads /mnt/yocto-tmp || true
-            echo 'Try to write into /mnt/sstate-cache:'; touch /mnt/sstate-cache/ci_debug && echo touch_ok || echo touch_fail
+            whoami &&
+            id pokyuser &&
+            ls -ld /mnt/sstate-cache /mnt/downloads /mnt/yocto-tmp
           "
         shell: bash
 
@@ -115,21 +96,9 @@ jobs:
             -e GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no" \
             -v ${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE} \
             -v /mnt:/mnt \
-            cuaesd/aesd-autotest:24-assignment6-yocto \
+            ${YOCTO_IMG} \
             --workdir=${GITHUB_WORKSPACE} \
             ./build.sh
-
-      - name: Disk diagnostics (after build)
-        if: always()
-        run: |
-          echo "=== df -h after build ==="
-          df -h || true
-          echo "=== docker system df after build ==="
-          docker system df || true
-          echo "=== build dir du ==="
-          du -sh build || true
-          du -sh /mnt/sstate-cache || true
-          du -sh /mnt/downloads || true
 
       - name: Save Yocto caches from /mnt
         if: always()
@@ -140,33 +109,19 @@ jobs:
             /mnt/downloads
           key: runner.os-yocto-${{ github.ref }}-${{ hashFiles('**/conf/layer.conf', '**/conf/bblayers.conf') }}
 
-      - name: Lightweight cleanup (always)
-        if: always()
-        run: |
-          ssh-add -D || true
-          # Do not prune images here (we need the test image). Just clean build temp folders and apt caches.
-          rm -rf build/tmp/* || true
-          sudo rm -rf /var/lib/apt/lists/* /var/cache/apt/* || true
-          echo "=== final df -h ==="
-          df -h || true
-
-
-        shell: bash
-
       - name: Run full test
         timeout-minutes: 15
         run: |
           docker run --rm \
             -v ${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE} \
-            cuaesd/aesd-autotest:assignment6-yocto \
+            ${YOCTO_IMG} \
             --workdir=${GITHUB_WORKSPACE} \
             ./full-test.sh
 
-      - name: Aggressive host docker cleanup (after tests)
+      - name: Final cleanup
         if: always()
         run: |
-          echo "Pruning unused docker objects (images/containers/volumes)..."
-          docker system df || true
+          ssh-add -D || true
           docker system prune -af --volumes || true
-          echo "Post-prune df -h:"
           df -h || true
+

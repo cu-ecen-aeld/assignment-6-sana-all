@@ -92,6 +92,18 @@ jobs:
             --workdir=${GITHUB_WORKSPACE} \
             ./build.sh
 
+      # ✅ THIS IS THE KEY FIX
+      - name: Configure SSH for non-interactive QEMU access
+        run: |
+          mkdir -p ~/.ssh
+          cat > ~/.ssh/config << 'EOF'
+          Host *
+            StrictHostKeyChecking no
+            UserKnownHostsFile=/dev/null
+            LogLevel ERROR
+          EOF
+          chmod 600 ~/.ssh/config
+
       - name: Save Yocto caches
         if: always()
         uses: actions/cache@v4

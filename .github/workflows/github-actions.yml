@@ -35,11 +35,7 @@ jobs:
         run: |
           sudo mkdir -p /mnt/yocto-tmp /mnt/sstate-cache /mnt/downloads
           sudo chmod 777 /mnt/yocto-tmp /mnt/sstate-cache /mnt/downloads
-          echo "Created /mnt/yocto-tmp, /mnt/sstate-cache, /mnt/downloads"
-
-      - name: Show host docker usage (no prune yet)
-        run: |
-          docker system df || true
+          echo "Created /mnt directories"
 
       - name: Restore Yocto caches to /mnt
         uses: actions/cache@v4
@@ -52,43 +48,39 @@ jobs:
             runner.os-yocto-${{ github.ref }}-
             runner.os-yocto-
 
-      - name: Pre-create build local.conf to point Yocto at /mnt
+      - name: Pre-create build local.conf (safe for Docker)
         run: |
           mkdir -p build/conf
           printf '%s\n' \
-            'TMPDIR ?= "/mnt/yocto-tmp"' \
-            'SSTATE_DIR ?= "/mnt/sstate-cache"' \
+            'TMPDIR ?= "${TOPDIR}/tmp"' \
+            'SSTATE_DIR ?= "${TOPDIR}/sstate-cache"' \
+            'SSTATE_MIRRORS ?= "file://.* file:///mnt/sstate-cache/PATH"' \
             'DL_DIR ?= "/mnt/downloads"' \
             'INHERIT += "rm_work"' \
             'BB_NUMBER_THREADS ?= "2"' \
             'PARALLEL_MAKE ?= "-j 2"' > build/conf/local.conf
-
-      - name: Make /mnt writable for container user
-        run: |
-          IMG=${YOCTO_IMG}
-          docker pull ${IMG} >/dev/null || true
-          PUID=$(docker run --rm ${IMG} sh -c "id -u pokyuser")
-          PGID=$(docker run --rm ${IMG} sh -c "id -g pokyuser")
-          sudo chown -R ${PUID}:${PGID} /mnt/yocto-tmp /mnt/sstate-cache /mnt/downloads
-          sudo chmod -R a+rwX /mnt/yocto-tmp /mnt/sstate-cache /mnt/downloads
-          docker run --rm -v /mnt:/mnt ${IMG} sh -c "touch /mnt/sstate-cache/ci_ok && echo OK"
+          echo "local.conf written with SSTATE_MIRRORS"
 
       - name: Start SSH agent
         uses: webfactory/ssh-agent@v0.5.4
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      - name: Debug-inspect image & workspace
+      - name: Debug-inspect image & mounts
         run: |
           IMG=${YOCTO_IMG}
-          docker run --rm -v ${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE} -v /mnt:/mnt ${IMG} sh -c "
-            whoami &&
-            id pokyuser &&
-            ls -ld /mnt/sstate-cache /mnt/downloads /mnt/yocto-tmp
-          "
+          docker run --rm \
+            -v ${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE} \
+            -v /mnt:/mnt \
+            ${IMG} sh -c "
+              whoami &&
+              id pokyuser &&
+              ls -ld /mnt/sstate-cache /mnt/downloads &&
+              echo 'Mirror test OK'
+            "
         shell: bash
 
-      - name: Run build (uses /mnt)
+      - name: Run build
         timeout-minutes: 600
         run: |
           docker run --rm \
@@ -100,7 +92,7 @@ jobs:
             --workdir=${GITHUB_WORKSPACE} \
             ./build.sh
 
-      - name: Save Yocto caches from /mnt
+      - name: Save Yocto caches
         if: always()
         uses: actions/cache@v4
         with:

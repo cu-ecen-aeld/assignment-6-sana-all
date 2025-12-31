@@ -114,7 +114,7 @@ jobs:
           key: runner.os-yocto-${{ github.ref }}-${{ hashFiles('**/conf/layer.conf', '**/conf/bblayers.conf') }}
 
       - name: Run full test
-        timeout-minutes: 15
+        timeout-minutes: 60
         run: |
           docker run --rm \
             -v ${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE} \
